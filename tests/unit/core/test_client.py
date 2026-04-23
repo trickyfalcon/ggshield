@@ -40,6 +40,7 @@ def test_check_client_api_key_error(response: Detail, error_class: Type[Exceptio
     """
     client_mock = Mock(spec=GGClient)
     client_mock.base_uri = "http://localhost"
+    client_mock.api_key = "test-api-key"
     client_mock.read_metadata.return_value = response
     with pytest.raises(error_class):
         check_client_api_key(client_mock, set())
@@ -52,6 +53,8 @@ def test_check_client_api_key_network_error():
     THEN it raises an UnexpectedError
     """
     client_mock = Mock()
+    client_mock.base_uri = "http://localhost"
+    client_mock.api_key = "test-api-key"
     client_mock.health_check = Mock(side_effect=requests.exceptions.ConnectionError)
     client_mock.read_metadata = Mock(return_value=Detail("Not found", 404))
     with pytest.raises(UnexpectedError):
@@ -66,6 +69,7 @@ def test_check_client_api_key_with_source_uuid_success():
     """
     client_mock = Mock(spec=GGClient)
     client_mock.base_uri = "http://localhost"
+    client_mock.api_key = "test-api-key"
     client_mock.read_metadata.return_value = None  # Success
     client_mock.api_tokens.return_value = APITokensResponse.from_dict(
         {
@@ -91,6 +95,7 @@ def test_check_client_api_key_with_source_uuid_missing_scope():
     """
     client_mock = Mock(spec=GGClient)
     client_mock.base_uri = "http://localhost"
+    client_mock.api_key = "test-api-key"
     client_mock.read_metadata.return_value = None  # Success
     client_mock.api_tokens.return_value = APITokensResponse.from_dict(
         {
@@ -121,6 +126,7 @@ def test_check_client_api_key_with_source_uuid_api_tokens_error():
     """
     client_mock = Mock(spec=GGClient)
     client_mock.base_uri = "http://localhost"
+    client_mock.api_key = "test-api-key"
     client_mock.read_metadata.return_value = None  # Success
     client_mock.api_tokens.return_value = Detail("API tokens error", 500)
 
@@ -136,6 +142,7 @@ def test_check_client_api_key_with_source_uuid_unexpected_response():
     """
     client_mock = Mock(spec=GGClient)
     client_mock.base_uri = "http://localhost"
+    client_mock.api_key = "test-api-key"
     client_mock.read_metadata.return_value = None  # Success
     client_mock.api_tokens.return_value = "unexpected_response_type"
 
@@ -151,6 +158,7 @@ def test_check_client_api_key_without_source_uuid_no_token_check():
     """
     client_mock = Mock(spec=GGClient)
     client_mock.base_uri = "http://localhost"
+    client_mock.api_key = "test-api-key"
     client_mock.read_metadata.return_value = None  # Success
 
     check_client_api_key(client_mock, set())
@@ -167,6 +175,7 @@ def test_check_client_api_key_unknown_scope():
     """
     client_mock = Mock(spec=GGClient)
     client_mock.base_uri = "http://localhost"
+    client_mock.api_key = "test-api-key"
     client_mock.read_metadata.return_value = None  # Success
     client_mock.api_tokens.return_value = APITokensResponse.from_dict(
         {

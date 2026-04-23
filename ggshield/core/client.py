@@ -9,7 +9,7 @@ from pygitguardian.models import APITokensResponse, Detail, TokenScope
 from requests import Session
 from requests.adapters import HTTPAdapter
 
-from . import ui
+from . import auth_check_cache, ui
 from .config import Config
 from .constants import DEFAULT_INSTANCE_URL
 from .errors import (
@@ -117,32 +117,52 @@ def check_client_api_key(client: GGClient, required_scopes: set[TokenScope]) -> 
     (either it is invalid or unset). Raises UnexpectedError if the API is down.
 
     If required_scopes is not empty, also checks that the API key has the required scopes.
-    """
-    try:
-        response = client.read_metadata()
-    except requests.exceptions.ConnectionError as e:
-        raise UnexpectedError(
-            "Failed to connect to GitGuardian server. Check your"
-            f" instance URL settings.\nDetails: {e}."
-        )
 
-    if response is None:
-        # None means success
-        pass
-    elif response.status_code == 401:
-        raise APIKeyCheckError(client.base_uri, "Invalid GitGuardian API key.")
-    elif response.status_code == 404:
-        raise UnexpectedError(
-            "The server returned a 404 error. Check your instance URL settings.",
-        )
-    elif response.status_code is not None and 500 <= response.status_code < 600:
-        raise ServiceUnavailableError(
-            message=f"GitGuardian server is not responding.\nDetails: {response.detail}",
-        )
-    else:
-        raise UnexpectedError(
-            f"GitGuardian server is not responding as expected.\nDetails: {response.detail}"
-        )
+    Successful checks are cached on disk for a short TTL so bursty callers (e.g. the
+    GitGuardian VSCode extension) do not re-hit /v1/metadata and
+    /v1/api_tokens/self on every invocation.
+    """
+    cached = auth_check_cache.load(client.base_uri, client.api_key)
+    if cached is not None and cached.secrets_engine_version is not None:
+        client.secrets_engine_version = cached.secrets_engine_version
+    if cached is not None and (
+        not required_scopes
+        or (cached.scopes is not None and required_scopes <= cached.scopes)
+    ):
+        return
+
+    # The cache either missed or does not prove the scopes we need. We still get to
+    # skip /v1/metadata when the cache told us the key was recently verified.
+    if cached is None or not cached.metadata_verified:
+        try:
+            response = client.read_metadata()
+        except requests.exceptions.ConnectionError as e:
+            raise UnexpectedError(
+                "Failed to connect to GitGuardian server. Check your"
+                f" instance URL settings.\nDetails: {e}."
+            )
+
+        if response is None:
+            # None means success
+            pass
+        elif response.status_code == 401:
+            raise APIKeyCheckError(client.base_uri, "Invalid GitGuardian API key.")
+        elif response.status_code == 404:
+            raise UnexpectedError(
+                "The server returned a 404 error. Check your instance URL settings.",
+            )
+        elif response.status_code is not None and 500 <= response.status_code < 600:
+            raise ServiceUnavailableError(
+                message=f"GitGuardian server is not responding.\nDetails: {response.detail}",
+            )
+        else:
+            raise UnexpectedError(
+                f"GitGuardian server is not responding as expected.\nDetails: {response.detail}"
+            )
+
+    api_scopes: Optional[set[TokenScope]] = (
+        cached.scopes if cached is not None else None
+    )
 
     # Check token scopes if required_scopes is not empty
     if required_scopes:
@@ -164,3 +184,7 @@ def check_client_api_key(client: GGClient, required_scopes: set[TokenScope]) -> 
         missing_scopes = required_scopes - api_scopes
         if missing_scopes:
             raise MissingScopesError(list(missing_scopes))
+
+    auth_check_cache.store(
+        client.base_uri, client.api_key, api_scopes, client.secrets_engine_version
+    )
